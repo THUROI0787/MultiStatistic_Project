@@ -1,0 +1,167 @@
+---
+title: "Multistatistics_project"
+author: "RuoyuZhao"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    pandoc_args: [
+      "--variable",
+      "mainfont:SimSun",
+      "--variable",
+      "CJKmainfont:SimSun"
+      ]
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+```
+
+```{r, results='hold'}
+library(car)
+library(GGally)
+library(ggplot2)
+library(corrgram)
+library(corrplot)
+library(psych)
+library(MASS)
+library(reshape)
+library(CCP)
+library(CCA)
+library(ICSNP)
+
+####################################### 
+#read data, EDA
+LAdata <- read.csv('E:/ProgramData/R_project/dataset/MultiStatistics/LAneighborhood.csv')
+summary(LAdata)
+
+LAdata_scale <- LAdata
+LAdata_scale[,-1] <- scale(LAdata[,-1])
+corrplot(cor(LAdata[,-1]), method = 'shade', order = 'AOE')
+# corrgram(LAdata[,2:13], order = TRUE, main = "correlation graph of LA", lower.panel = panel.pts, upper.panel = corrgram::panel.ellipse, diag.panel=panel.density, pch = 20, cex = 1)
+
+melt.data = melt(LAdata_scale[,-1])
+ggplot(data=melt.data,aes(x=variable,y=value,fill=variable)) +
+ geom_boxplot(alpha=0.6,outlier.colour="#FE2222",outlier.shape=20,outlier.size = 3.5)
+```
+```{r, results='hold'}
+####################################### 
+#resize data
+# 删除schools的离群点；根据income加入分类变量；做scale
+library(dplyr)
+LAdata0 <- LAdata[LAdata$Schools != 0, ]
+LAdata0$Class <- 2
+LAdata0$Class[LAdata0$Income < 30000] <- 1
+LAdata0$Class[LAdata0$Income > 80000] <- 3
+LAdata0$Class <- factor(LAdata0$Class)
+LAdata0[,2:15] <- scale(LAdata0[,2:15])
+# ggpairs(LAdata0[,-1],ggplot2::aes(colour=Class))
+ggpairs(LAdata0[,c(2:13,16)], aes(color = Class, alpha = 0.5),
+        upper = list(combo = "facetdensity"), lower = list(continuous = "smooth"))
+```
+
+```{r, results='hold'}
+###########################################
+# PCA
+library('corrr')
+library('ggcorrplot')
+library("FactoMineR")
+library("ggplot2")
+library("ggfortify")
+library("gridExtra")
+library("factoextra")
+library("corrplot")
+LAdata0$Class <- factor(LAdata0$Class)
+LApca = princomp(LAdata0[,3:15],scores = T,cor = T)
+summary(LApca)
+fviz_eig(LApca, addlabels = TRUE)
+fviz_pca_var(LApca,
+             col.var = "cos2", # Color by the quality of representation
+             gradient.cols = c("#FE3333", "gold", "green"),
+             repel = TRUE
+             )
+var <- get_pca_var(LApca)
+corrplot(var$cos2, is.corr=FALSE)
+ggplot2::autoplot(LApca, data=LAdata0[,3:16], colour="Class", frame=TRUE, frame.type="t") 
+```
+
+```{r, results='hold'}
+######################################
+# FA : PC method
+cat("\n*****************\n")
+cat("FA: PC method: \n")
+FA_PC <- principal(LAdata0[,3:15], nfactors=4, rotate="varimax")
+FA_PC # print results
+plot(FA_PC$values,type="b") # scree plot
+plot(FA_PC$loadings)
+plot(FA_PC$loadings,type="n") # set up plot
+text(FA_PC$loadings,labels=names(LAdata0),cex=.7) # add variable names
+
+# MLE method
+cat("\n*****************\n")
+cat("FA: MLE method: \n")
+FA_MLE <- factanal(LAdata0[,3:15],factors=4,rotation="varimax")
+FA_MLE$uniquenesses
+FA_MLE
+plot(FA_MLE$loadings)
+plot(FA_MLE$loadings,type="n") # set up plot
+text(FA_MLE$loadings,labels=names(LAdata0[,3:15]),cex=0.9) # add variable names
+```
+
+```{r, results='hold'}
+library(klaR)
+library(psych)
+library(MASS)
+library(devtools)
+set.seed(787) # 我的学号后三位
+ind <- sample(2, nrow(LAdata0), replace = TRUE, prob = c(0.7, 0.3))
+training <- LAdata0[ind==1, c(3:16)]
+testing <- LAdata0[ind==2, c(3:16)]
+linear <- lda(Class~., training)
+linear
+p <- predict(linear, training)
+ldahist(data = p$x[,1], g = training$Class)
+
+# rate of training
+p1 <- predict(linear, training)$class
+tab <- table(Predicted = p1, Actual = training$Class)
+tab
+accuracy <- sum(diag(tab))/sum(sum(tab))
+sprintf("Accuracy: %.2f%%", accuracy*100)
+# rate of prediction
+p2 <- predict(linear, testing)$class
+tab2 <- table(Predicted = p2, Actual = testing$Class)
+tab2
+accuracy2 <- sum(diag(tab2))/sum(sum(tab2))
+sprintf("Accuracy: %.2f%%", accuracy2*100)
+```
+
+```{r, results='hold'}
+suppressPackageStartupMessages(library(tidyverse))
+library(caTools)
+library(class)
+library(pROC)
+train_pred <- knn(
+                 train = training[-16], 
+                 test = training[-16],
+                 cl = training$Class, 
+                 k=1
+                 )
+test_pred <- knn(
+                 train = training[-16], 
+                 test = testing[-16],
+                 cl = training$Class, 
+                 k=1
+                 )
+actual <- testing$Class
+cm1 <- table(actual,test_pred)
+cm1
+accuracy3 <- sum(diag(cm1))/length(actual)
+sprintf("Accuracy: %.2f%%", accuracy3*100)
+
+actual2 <- training$Class
+cm2 <- table(actual2,train_pred)
+cm2
+accuracy4 <- sum(diag(cm2))/length(actual2)
+sprintf("Accuracy: %.2f%%", accuracy4*100)
+```
